@@ -1,17 +1,63 @@
-# migraine_journal
+# Migraine Journal
 
-A new Flutter project.
+A Flutter migraine tracking app for kids and caregivers.
+
+## Features
+
+- Home screen with a large `Log Migraine` action
+- Migraine logging with:
+  - emoji severity scale from `1-5`
+  - trigger chips for weather, food, sleep, screens, and stress
+  - auto-filled date and time
+  - optional duration in minutes
+- Local storage using `shared_preferences`
+- History view for reviewing past entries
+- Report view with date range filtering and a doctor-friendly summary that can be copied for sharing
+
+## Project Structure
+
+- `lib/main.dart`: current application UI, model, and local repository logic
+- `test/widget_test.dart`: baseline widget test
+- `ios/`, `android/`, `web/`: platform-specific Flutter scaffolding
 
 ## Getting Started
 
-This project is a starting point for a Flutter application.
+Install dependencies:
 
-A few resources to get you started if this is your first Flutter project:
+```bash
+flutter pub get
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Run analysis and tests:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+flutter analyze
+flutter test
+```
+
+Run locally in Chrome:
+
+```bash
+flutter run -d chrome
+```
+
+Build a production web bundle:
+
+```bash
+flutter build web
+```
+
+## Platform Notes
+
+- Web is configured and working locally.
+- iOS and Android source folders exist, but running on simulators or emulators requires full local platform setup.
+- Check your environment with:
+
+```bash
+flutter doctor -v
+flutter devices
+```
+
+## Next Steps
+
+Useful follow-up work includes entry editing and deletion, native sharing for reports, and splitting `lib/main.dart` into smaller feature-focused files.
