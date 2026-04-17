@@ -35,31 +35,6 @@ void main() {
     expect(rankedTriggerLabels(entries), <String>['Food', 'Pollen', 'Weather']);
   });
 
-  test('selected custom trigger is appended to baseline visible triggers', () {
-    final visible = visibleTriggerOptionsForLogScreen(
-      allOptions: <TriggerOption>[
-        ...defaultTriggerOptions,
-        TriggerOption(
-          key: 'candy',
-          label: 'Candy',
-          icon: iconForCustomTrigger('Candy'),
-          isCustom: true,
-        ),
-      ],
-      rankedTriggerLabels: <String>['Weather'],
-      selectedTriggerLabels: <String>{'Candy'},
-    );
-
-    expect(visible.map((option) => option.label).toList(), <String>[
-      'Weather',
-      'Food',
-      'Sleep',
-      'Screens',
-      'Stress',
-      'Candy',
-    ]);
-  });
-
   test('custom trigger icon matcher uses reasonable heuristics', () {
     expect(iconForCustomTrigger('Candy'), CupertinoIcons.square_favorites_alt);
     expect(iconForCustomTrigger('School Stress'), CupertinoIcons.heart);
@@ -212,10 +187,77 @@ void main() {
 
     await tester.drag(find.byType(ListView).last, const Offset(0, -400));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Save Entry'));
+    await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
     expect(find.text('Lindra'), findsOneWidget);
-    expect(find.text('I hope you feel better.'), findsOneWidget);
+    expect(find.text('Logged ✓'), findsOneWidget);
+    expect(find.text('Add details'), findsOneWidget);
+  });
+
+  testWidgets('log screen starts with 3 severity choices and collapsed triggers', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final repository = MigraineRepository(
+      await SharedPreferences.getInstance(),
+    );
+
+    await tester.pumpWidget(MyApp(repository: repository));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Log Migraine'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Light'), findsOneWidget);
+    expect(find.text('Medium'), findsOneWidget);
+    expect(find.text('Strong'), findsOneWidget);
+    expect(find.text('Tiny'), findsNothing);
+    expect(find.text('Mild'), findsNothing);
+    expect(find.text('Big'), findsNothing);
+    expect(find.text('Huge'), findsNothing);
+
+    expect(find.text('Possible triggers (optional)'), findsOneWidget);
+    expect(find.text('More triggers'), findsNothing);
+    expect(find.text('Add your own'), findsNothing);
+    expect(find.text('Sleep'), findsNothing);
+
+    await tester.tap(find.text('Possible triggers (optional)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sleep'), findsOneWidget);
+    expect(find.text('Stress'), findsOneWidget);
+    expect(find.text('Food'), findsOneWidget);
+    expect(find.text('Weather'), findsOneWidget);
+    expect(find.text('Screens'), findsOneWidget);
+  });
+
+  testWidgets('add details lets a saved entry capture duration later', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final repository = MigraineRepository(
+      await SharedPreferences.getInstance(),
+    );
+
+    await tester.pumpWidget(MyApp(repository: repository));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Log Migraine'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add details'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(CupertinoTextField), '45');
+    await tester.tap(find.text('Save Details'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('History'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('45 min'), findsOneWidget);
   });
 }

@@ -47,9 +47,8 @@ class MigraineJournalApp extends StatefulWidget {
 class _MigraineJournalAppState extends State<MigraineJournalApp> {
   int _selectedIndex = 0;
   List<MigraineEntry> _entries = <MigraineEntry>[];
-  List<String> _customTriggers = <String>[];
-  List<String> _rankedTriggers = <String>[];
   bool _showSavedConfirmation = false;
+  String? _lastSavedEntryId;
   bool _isLoading = true;
 
   @override
@@ -60,14 +59,11 @@ class _MigraineJournalAppState extends State<MigraineJournalApp> {
 
   Future<void> _loadEntries() async {
     final entries = await widget.repository.loadEntries();
-    final customTriggers = await widget.repository.loadCustomTriggers();
     if (!mounted) {
       return;
     }
     setState(() {
       _entries = entries;
-      _customTriggers = customTriggers;
-      _rankedTriggers = rankedTriggerLabels(entries);
       _isLoading = false;
     });
   }
@@ -81,54 +77,24 @@ class _MigraineJournalAppState extends State<MigraineJournalApp> {
     }
     setState(() {
       _entries = updatedEntries;
-      _rankedTriggers = rankedTriggerLabels(updatedEntries);
       _selectedIndex = 0;
       _showSavedConfirmation = true;
+      _lastSavedEntryId = entry.id;
     });
   }
 
-  Future<String> _saveCustomTrigger(String label) async {
-    final trimmedLabel = titleCaseWords(label.trim());
-    final existingLabels = <String>{
-      ...defaultTriggerOptions.map((option) => option.label),
-      ..._customTriggers,
-    };
-    final matchingLabel = existingLabels.cast<String?>().firstWhere(
-      (value) =>
-          normalizeTriggerKey(value!) == normalizeTriggerKey(trimmedLabel),
-      orElse: () => null,
-    );
-    if (matchingLabel != null) {
-      return matchingLabel;
-    }
-
-    final updatedCustomTriggers = <String>[..._customTriggers, trimmedLabel]
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    await widget.repository.saveCustomTriggers(updatedCustomTriggers);
-    if (!mounted) {
-      return trimmedLabel;
-    }
-    setState(() {
-      _customTriggers = updatedCustomTriggers;
-    });
-    return trimmedLabel;
-  }
-
-  Future<void> _deleteCustomTrigger(String label) async {
-    final updatedCustomTriggers =
-        _customTriggers
-            .where(
-              (trigger) =>
-                  normalizeTriggerKey(trigger) != normalizeTriggerKey(label),
-            )
-            .toList()
-          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-    await widget.repository.saveCustomTriggers(updatedCustomTriggers);
+  Future<void> _updateEntry(MigraineEntry updatedEntry) async {
+    final updatedEntries = _entries
+        .map((entry) => entry.id == updatedEntry.id ? updatedEntry : entry)
+        .toList()
+      ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    await widget.repository.saveEntries(updatedEntries);
     if (!mounted) {
       return;
     }
     setState(() {
-      _customTriggers = updatedCustomTriggers;
+      _entries = updatedEntries;
+      _lastSavedEntryId = updatedEntry.id;
     });
   }
 
@@ -142,8 +108,29 @@ class _MigraineJournalAppState extends State<MigraineJournalApp> {
     }
     setState(() {
       _entries = updatedEntries;
-      _rankedTriggers = rankedTriggerLabels(updatedEntries);
+      if (_lastSavedEntryId == entryId) {
+        _lastSavedEntryId = null;
+      }
     });
+  }
+
+  Future<void> _openEditDetails(String entryId) async {
+    final entry = _entries.cast<MigraineEntry?>().firstWhere(
+      (candidate) => candidate?.id == entryId,
+      orElse: () => null,
+    );
+    if (entry == null || !mounted) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => EditEntryDetailsScreen(
+          entry: entry,
+          onSave: _updateEntry,
+        ),
+      ),
+    );
   }
 
   @override
@@ -157,6 +144,9 @@ class _MigraineJournalAppState extends State<MigraineJournalApp> {
     final screens = <Widget>[
       HomeScreen(
         showSavedConfirmation: _showSavedConfirmation,
+        onAddDetails: _lastSavedEntryId == null
+            ? null
+            : () => _openEditDetails(_lastSavedEntryId!),
         onLogPressed: () {
           setState(() {
             _showSavedConfirmation = false;
@@ -165,16 +155,16 @@ class _MigraineJournalAppState extends State<MigraineJournalApp> {
             CupertinoPageRoute<void>(
               builder: (_) => LogMigraineScreen(
                 onSave: _saveEntry,
-                customTriggers: _customTriggers,
-                rankedTriggers: _rankedTriggers,
-                onAddCustomTrigger: _saveCustomTrigger,
-                onDeleteCustomTrigger: _deleteCustomTrigger,
               ),
             ),
           );
         },
       ),
-      HistoryScreen(entries: _entries, onDeleteEntry: _deleteEntry),
+      HistoryScreen(
+        entries: _entries,
+        onDeleteEntry: _deleteEntry,
+        onEditEntry: _openEditDetails,
+      ),
       ReportsScreen(entries: _entries),
     ];
 
@@ -214,10 +204,12 @@ class HomeScreen extends StatelessWidget {
     super.key,
     required this.onLogPressed,
     required this.showSavedConfirmation,
+    required this.onAddDetails,
   });
 
   final VoidCallback onLogPressed;
   final bool showSavedConfirmation;
+  final VoidCallback? onAddDetails;
 
   @override
   Widget build(BuildContext context) {
@@ -268,14 +260,29 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ),
                   if (showSavedConfirmation) ...[
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 18),
                     Text(
-                      'I hope you feel better.',
+                      'Logged ✓',
                       style: theme.textTheme.textStyle.copyWith(
                         color: CupertinoColors.activeBlue,
                         fontWeight: FontWeight.w600,
+                        fontSize: 16,
                       ),
                     ),
+                    if (onAddDetails != null) ...[
+                      const SizedBox(height: 6),
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        minimumSize: Size.zero,
+                        onPressed: onAddDetails,
+                        child: Text(
+                          'Add details',
+                          style: theme.textTheme.textStyle.copyWith(
+                            color: CupertinoColors.activeBlue,
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ],
               ),
@@ -288,20 +295,9 @@ class HomeScreen extends StatelessWidget {
 }
 
 class LogMigraineScreen extends StatefulWidget {
-  const LogMigraineScreen({
-    super.key,
-    required this.onSave,
-    required this.customTriggers,
-    required this.rankedTriggers,
-    required this.onAddCustomTrigger,
-    required this.onDeleteCustomTrigger,
-  });
+  const LogMigraineScreen({super.key, required this.onSave});
 
   final Future<void> Function(MigraineEntry entry) onSave;
-  final List<String> customTriggers;
-  final List<String> rankedTriggers;
-  final Future<String> Function(String label) onAddCustomTrigger;
-  final Future<void> Function(String label) onDeleteCustomTrigger;
 
   @override
   State<LogMigraineScreen> createState() => _LogMigraineScreenState();
@@ -309,50 +305,228 @@ class LogMigraineScreen extends StatefulWidget {
 
 class _LogMigraineScreenState extends State<LogMigraineScreen> {
   static const severityOptions = <SeverityOption>[
-    SeverityOption(value: 1, emoji: '🙂', label: 'Tiny'),
-    SeverityOption(value: 2, emoji: '😐', label: 'Mild'),
-    SeverityOption(value: 3, emoji: '😣', label: 'Medium'),
-    SeverityOption(value: 4, emoji: '😖', label: 'Big'),
-    SeverityOption(value: 5, emoji: '😭', label: 'Huge'),
+    SeverityOption(value: 1, emoji: '🙂', label: 'Light'),
+    SeverityOption(value: 2, emoji: '😐', label: 'Medium'),
+    SeverityOption(value: 3, emoji: '😣', label: 'Strong'),
   ];
 
-  int _severity = 3;
+  int _severity = 2;
   final Set<String> _selectedTriggers = <String>{};
-  late List<String> _customTriggers;
-  final TextEditingController _durationController = TextEditingController();
-  DateTime _startedAt = DateTime.now();
+  bool _isSaving = false;
+  bool _showTriggers = false;
+
+  Future<void> _submit() async {
+    setState(() {
+      _isSaving = true;
+    });
+    final entry = MigraineEntry(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      severity: _severity,
+      triggers: _selectedTriggers.toList()..sort(),
+      startedAt: clampToNow(DateTime.now()),
+    );
+    await widget.onSave(entry);
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = CupertinoTheme.of(context);
+
+    return CupertinoPageScaffold(
+      navigationBar: const CupertinoNavigationBar(middle: Text('Log Migraine')),
+      child: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          children: [
+            Text(
+              'How bad is it?',
+              style: theme.textTheme.navTitleTextStyle,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: severityOptions.map((option) {
+                final isSelected = option.value == _severity;
+                final isLast = identical(option, severityOptions.last);
+                return Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.only(right: isLast ? 0 : 8),
+                    child: _SelectablePill(
+                      isSelected: isSelected,
+                      onPressed: () {
+                        setState(() {
+                          _severity = option.value;
+                        });
+                      },
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 14,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            option.emoji,
+                            style: const TextStyle(fontSize: 24),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            option.label,
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.textStyle.copyWith(
+                              fontSize: 11,
+                              color: isSelected
+                                  ? CupertinoColors.white
+                                  : CupertinoColors.label,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 28),
+            _GroupedCard(
+              child: Column(
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () {
+                      setState(() {
+                        _showTriggers = !_showTriggers;
+                      });
+                    },
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Possible triggers (optional)',
+                                style: theme.textTheme.navTitleTextStyle
+                                    .copyWith(fontSize: 20),
+                              ),
+                              if (_selectedTriggers.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  _selectedTriggers.join(', '),
+                                  style: theme.textTheme.textStyle.copyWith(
+                                    color: CupertinoColors.secondaryLabel,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        Icon(
+                          _showTriggers
+                              ? CupertinoIcons.chevron_up
+                              : CupertinoIcons.chevron_down,
+                          color: CupertinoColors.systemGrey,
+                          size: 18,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_showTriggers) ...[
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: defaultTriggerOptions.map((option) {
+                        final isSelected = _selectedTriggers.contains(
+                          option.label,
+                        );
+                        return _SelectablePill(
+                          isSelected: isSelected,
+                          onPressed: () {
+                            setState(() {
+                              if (isSelected) {
+                                _selectedTriggers.remove(option.label);
+                              } else {
+                                _selectedTriggers.add(option.label);
+                              }
+                            });
+                          },
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                option.icon,
+                                size: 18,
+                                color: isSelected
+                                    ? CupertinoColors.white
+                                    : CupertinoColors.activeBlue,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                option.label,
+                                style: theme.textTheme.textStyle.copyWith(
+                                  color: isSelected
+                                      ? CupertinoColors.white
+                                      : CupertinoColors.label,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 28),
+            CupertinoButton.filled(
+              onPressed: _isSaving ? null : _submit,
+              borderRadius: BorderRadius.circular(16),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Text(_isSaving ? 'Saving...' : 'Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class EditEntryDetailsScreen extends StatefulWidget {
+  const EditEntryDetailsScreen({
+    super.key,
+    required this.entry,
+    required this.onSave,
+  });
+
+  final MigraineEntry entry;
+  final Future<void> Function(MigraineEntry entry) onSave;
+
+  @override
+  State<EditEntryDetailsScreen> createState() => _EditEntryDetailsScreenState();
+}
+
+class _EditEntryDetailsScreenState extends State<EditEntryDetailsScreen> {
+  late final TextEditingController _durationController;
+  late DateTime _startedAt;
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
-    _customTriggers = [...widget.customTriggers];
+    _startedAt = widget.entry.startedAt;
+    _durationController = TextEditingController(
+      text: widget.entry.durationMinutes?.toString() ?? '',
+    );
   }
 
   @override
   void dispose() {
     _durationController.dispose();
     super.dispose();
-  }
-
-  Future<void> _submit() async {
-    setState(() {
-      _isSaving = true;
-    });
-    final durationText = _durationController.text.trim();
-    final durationMinutes = int.tryParse(durationText);
-    final sanitizedStartedAt = clampToNow(_startedAt);
-    final entry = MigraineEntry(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      severity: _severity,
-      triggers: _selectedTriggers.toList()..sort(),
-      startedAt: sanitizedStartedAt,
-      durationMinutes: durationMinutes,
-    );
-    await widget.onSave(entry);
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
   }
 
   Future<void> _pickStartedAt() async {
@@ -468,532 +642,43 @@ class _LogMigraineScreenState extends State<LogMigraineScreen> {
     });
   }
 
-  Future<void> _showAddCustomTriggerSheet() async {
-    final controller = TextEditingController();
-    String? errorText;
-
-    final label = await showCupertinoModalPopup<String>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
-            return AnimatedPadding(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOut,
-              padding: EdgeInsets.only(bottom: keyboardInset),
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: Container(
-                  constraints: const BoxConstraints(maxHeight: 320),
-                  color: CupertinoColors.systemBackground.resolveFrom(context),
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                  child: SafeArea(
-                    top: false,
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              CupertinoButton(
-                                padding: EdgeInsets.zero,
-                                onPressed: () => Navigator.of(context).pop(),
-                                child: const Text('Cancel'),
-                              ),
-                              CupertinoButton(
-                                padding: EdgeInsets.zero,
-                                onPressed: () {
-                                  final value = controller.text.trim();
-                                  if (value.isEmpty) {
-                                    setModalState(() {
-                                      errorText = 'Enter a trigger name first.';
-                                    });
-                                    return;
-                                  }
-                                  Navigator.of(context).pop(value);
-                                },
-                                child: const Text('Add'),
-                              ),
-                            ],
-                          ),
-                          Text(
-                            'Add your own trigger',
-                            style: CupertinoTheme.of(context)
-                                .textTheme
-                                .navTitleTextStyle
-                                .copyWith(fontSize: 22),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'This will be saved for next time too.',
-                            style: CupertinoTheme.of(context)
-                                .textTheme
-                                .textStyle
-                                .copyWith(
-                                  color: CupertinoColors.secondaryLabel,
-                                ),
-                          ),
-                          const SizedBox(height: 16),
-                          CupertinoTextField(
-                            controller: controller,
-                            autofocus: true,
-                            placeholder: 'Example: Dehydration',
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 14,
-                            ),
-                            onChanged: (_) {
-                              if (errorText != null) {
-                                setModalState(() {
-                                  errorText = null;
-                                });
-                              }
-                            },
-                          ),
-                          if (errorText != null) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              errorText!,
-                              style: CupertinoTheme.of(context)
-                                  .textTheme
-                                  .textStyle
-                                  .copyWith(
-                                    color: CupertinoColors.destructiveRed,
-                                  ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-    controller.dispose();
-
-    if (label == null || !mounted) {
-      return;
-    }
-
-    final savedLabel = await widget.onAddCustomTrigger(label);
-    if (!mounted) {
-      return;
-    }
+  Future<void> _saveDetails() async {
     setState(() {
-      if (!_customTriggers.contains(savedLabel)) {
-        _customTriggers = [..._customTriggers, savedLabel]
-          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-      }
-      _selectedTriggers.add(savedLabel);
+      _isSaving = true;
     });
-  }
 
-  Future<void> _showAllTriggersSheet(
-    List<TriggerOption> allTriggerOptions,
-  ) async {
-    final result = await showCupertinoModalPopup<Object?>(
-      context: context,
-      builder: (context) {
-        final localSelection = <String>{..._selectedTriggers};
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Container(
-              height: 420,
-              color: CupertinoColors.systemBackground.resolveFrom(context),
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              child: SafeArea(
-                top: false,
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: const Text('Cancel'),
-                        ),
-                        CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: () => Navigator.of(
-                            context,
-                          ).pop(<String, Object?>{'selection': localSelection}),
-                          child: const Text('Done'),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      'All triggers',
-                      style: CupertinoTheme.of(
-                        context,
-                      ).textTheme.navTitleTextStyle.copyWith(fontSize: 22),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Choose any triggers you want to include.',
-                      style: CupertinoTheme.of(context).textTheme.textStyle
-                          .copyWith(color: CupertinoColors.secondaryLabel),
-                    ),
-                    const SizedBox(height: 16),
-                    Expanded(
-                      child: ListView.separated(
-                        itemCount: allTriggerOptions.length,
-                        separatorBuilder: (_, index) =>
-                            const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final option = allTriggerOptions[index];
-                          final isSelected = localSelection.contains(
-                            option.label,
-                          );
-                          final row = CupertinoButton(
-                            padding: EdgeInsets.zero,
-                            onPressed: () {
-                              setModalState(() {
-                                if (isSelected) {
-                                  localSelection.remove(option.label);
-                                } else {
-                                  localSelection.add(option.label);
-                                }
-                              });
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 14,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? CupertinoColors.activeBlue
-                                    : CupertinoColors
-                                          .secondarySystemGroupedBackground
-                                          .resolveFrom(context),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    option.icon,
-                                    color: isSelected
-                                        ? CupertinoColors.white
-                                        : CupertinoColors.activeBlue,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      option.label,
-                                      style: CupertinoTheme.of(context)
-                                          .textTheme
-                                          .textStyle
-                                          .copyWith(
-                                            color: isSelected
-                                                ? CupertinoColors.white
-                                                : CupertinoColors.label,
-                                          ),
-                                    ),
-                                  ),
-                                  Icon(
-                                    isSelected
-                                        ? CupertinoIcons
-                                              .check_mark_circled_solid
-                                        : CupertinoIcons.circle,
-                                    color: isSelected
-                                        ? CupertinoColors.white
-                                        : CupertinoColors.systemGrey,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-
-                          if (!option.isCustom) {
-                            return row;
-                          }
-
-                          return Dismissible(
-                            key: ValueKey('custom-trigger-${option.key}'),
-                            direction: DismissDirection.endToStart,
-                            confirmDismiss: (_) async {
-                              final navigator = Navigator.of(context);
-                              final shouldDelete =
-                                  await showCupertinoDialog<bool>(
-                                    context: context,
-                                    builder: (context) {
-                                      return CupertinoAlertDialog(
-                                        title: const Text(
-                                          'Delete Custom Reason?',
-                                        ),
-                                        content: Text(
-                                          '"${option.label}" will no longer appear as a reusable reason.',
-                                        ),
-                                        actions: [
-                                          CupertinoDialogAction(
-                                            onPressed: () =>
-                                                Navigator.of(context).pop(false),
-                                            child: const Text('Cancel'),
-                                          ),
-                                          CupertinoDialogAction(
-                                            isDestructiveAction: true,
-                                            onPressed: () =>
-                                                Navigator.of(context).pop(true),
-                                            child: const Text('Delete'),
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  );
-                              if (shouldDelete == true) {
-                                navigator.pop(<String, Object?>{
-                                  'delete': option.label,
-                                });
-                              }
-                              return false;
-                            },
-                            background: Container(
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.symmetric(horizontal: 18),
-                              decoration: BoxDecoration(
-                                color: CupertinoColors.destructiveRed,
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: const Icon(
-                                CupertinoIcons.delete,
-                                color: CupertinoColors.white,
-                              ),
-                            ),
-                            child: row,
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+    final durationText = _durationController.text.trim();
+    final updatedEntry = MigraineEntry(
+      id: widget.entry.id,
+      severity: widget.entry.severity,
+      triggers: widget.entry.triggers,
+      startedAt: clampToNow(_startedAt),
+      durationMinutes: durationText.isEmpty ? null : int.tryParse(durationText),
     );
 
-    if (result == null || !mounted) {
-      return;
+    await widget.onSave(updatedEntry);
+    if (mounted) {
+      Navigator.of(context).pop();
     }
-
-    if (result is Map<String, Object?> && result['delete'] is String) {
-      final deletedLabel = result['delete']! as String;
-      await widget.onDeleteCustomTrigger(deletedLabel);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _customTriggers =
-            _customTriggers
-                .where(
-                  (trigger) =>
-                      normalizeTriggerKey(trigger) !=
-                      normalizeTriggerKey(deletedLabel),
-                )
-                .toList()
-              ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-        _selectedTriggers.removeWhere(
-          (trigger) =>
-              normalizeTriggerKey(trigger) == normalizeTriggerKey(deletedLabel),
-        );
-      });
-      return;
-    }
-
-    if (result is! Map<String, Object?> ||
-        result['selection'] is! Set<String>) {
-      return;
-    }
-    final updatedSelection = result['selection']! as Set<String>;
-
-    setState(() {
-      _selectedTriggers
-        ..clear()
-        ..addAll(updatedSelection);
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = CupertinoTheme.of(context);
-    final allTriggerOptions = <TriggerOption>[
-      ..._customTriggers.map(
-        (label) => TriggerOption(
-          key: normalizeTriggerKey(label),
-          label: label,
-          icon: iconForCustomTrigger(label),
-          isCustom: true,
-        ),
-      ),
-      ...defaultTriggerOptions,
-    ];
-    final triggerOptions = visibleTriggerOptionsForLogScreen(
-      allOptions: allTriggerOptions,
-      rankedTriggerLabels: widget.rankedTriggers,
-      selectedTriggerLabels: _selectedTriggers,
-    );
 
     return CupertinoPageScaffold(
-      navigationBar: const CupertinoNavigationBar(middle: Text('Log Migraine')),
+      navigationBar: const CupertinoNavigationBar(middle: Text('Add Details')),
       child: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
           children: [
             Text(
-              'How bad is it?',
-              style: theme.textTheme.navTitleTextStyle,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: severityOptions.map((option) {
-                final isSelected = option.value == _severity;
-                final isLast = identical(option, severityOptions.last);
-                return Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.only(right: isLast ? 0 : 8),
-                    child: _SelectablePill(
-                      isSelected: isSelected,
-                      onPressed: () {
-                        setState(() {
-                          _severity = option.value;
-                        });
-                      },
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 14,
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            option.emoji,
-                            style: const TextStyle(fontSize: 24),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            option.label,
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.textStyle.copyWith(
-                              fontSize: 11,
-                              color: isSelected
-                                  ? CupertinoColors.white
-                                  : CupertinoColors.label,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 28),
-            Text(
-              'What might have caused it?',
-              style: theme.textTheme.navTitleTextStyle,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Optional. Tap all that fit.',
+              'Add details later, without slowing down the first log.',
               style: theme.textTheme.textStyle.copyWith(
                 color: CupertinoColors.secondaryLabel,
               ),
             ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                ...triggerOptions.map((option) {
-                  final isSelected = _selectedTriggers.contains(option.label);
-                  return _SelectablePill(
-                    isSelected: isSelected,
-                    onPressed: () {
-                      setState(() {
-                        if (isSelected) {
-                          _selectedTriggers.remove(option.label);
-                        } else {
-                          _selectedTriggers.add(option.label);
-                        }
-                      });
-                    },
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          option.icon,
-                          size: 18,
-                          color: isSelected
-                              ? CupertinoColors.white
-                              : CupertinoColors.activeBlue,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          option.label,
-                          style: theme.textTheme.textStyle.copyWith(
-                            color: isSelected
-                                ? CupertinoColors.white
-                                : CupertinoColors.label,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
-                _SelectablePill(
-                  isSelected: false,
-                  onPressed: () => _showAllTriggersSheet(allTriggerOptions),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        CupertinoIcons.ellipsis_circle,
-                        size: 18,
-                        color: CupertinoColors.activeBlue,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'More triggers',
-                        style: theme.textTheme.textStyle.copyWith(
-                          color: CupertinoColors.activeBlue,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _SelectablePill(
-                  isSelected: false,
-                  onPressed: _showAddCustomTriggerSheet,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        CupertinoIcons.add_circled,
-                        size: 18,
-                        color: CupertinoColors.activeBlue,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Add your own',
-                        style: theme.textTheme.textStyle.copyWith(
-                          color: CupertinoColors.activeBlue,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 28),
+            const SizedBox(height: 20),
             _GroupedCard(
               child: Column(
                 children: [
@@ -1049,23 +734,11 @@ class _LogMigraineScreenState extends State<LogMigraineScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Text(
-                              'Duration',
-                              style: theme.textTheme.textStyle.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Optional',
-                              style: theme.textTheme.textStyle.copyWith(
-                                color: CupertinoColors.secondaryLabel,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
+                        Text(
+                          'Duration (optional)',
+                          style: theme.textTheme.textStyle.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         CupertinoTextField(
@@ -1091,10 +764,10 @@ class _LogMigraineScreenState extends State<LogMigraineScreen> {
             ),
             const SizedBox(height: 28),
             CupertinoButton.filled(
-              onPressed: _isSaving ? null : _submit,
+              onPressed: _isSaving ? null : _saveDetails,
               borderRadius: BorderRadius.circular(16),
               padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Text(_isSaving ? 'Saving...' : 'Save Entry'),
+              child: Text(_isSaving ? 'Saving...' : 'Save Details'),
             ),
           ],
         ),
@@ -1108,10 +781,12 @@ class HistoryScreen extends StatelessWidget {
     super.key,
     required this.entries,
     required this.onDeleteEntry,
+    required this.onEditEntry,
   });
 
   final List<MigraineEntry> entries;
   final Future<void> Function(String entryId) onDeleteEntry;
+  final Future<void> Function(String entryId) onEditEntry;
 
   @override
   Widget build(BuildContext context) {
@@ -1144,7 +819,7 @@ class HistoryScreen extends StatelessWidget {
 
             final entry = entries[index - 1];
             final subtitleParts = <String>[
-              'Severity ${entry.severity}/5',
+              'Severity ${entry.severity}/$maxSeverityLevel',
               if (entry.durationMinutes != null) '${entry.durationMinutes} min',
               if (entry.triggers.isNotEmpty) entry.triggers.join(', '),
             ];
@@ -1188,42 +863,56 @@ class HistoryScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 12),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    minimumSize: Size.zero,
-                    onPressed: () async {
-                      final shouldDelete = await showCupertinoDialog<bool>(
-                        context: context,
-                        builder: (context) {
-                          return CupertinoAlertDialog(
-                            title: const Text('Delete Entry?'),
-                            content: Text(
-                              '${formatDate(entry.startedAt)} at ${formatTime(entry.startedAt)} will be removed from history.',
-                            ),
-                            actions: [
-                              CupertinoDialogAction(
-                                onPressed: () =>
-                                    Navigator.of(context).pop(false),
-                                child: const Text('Cancel'),
-                              ),
-                              CupertinoDialogAction(
-                                isDestructiveAction: true,
-                                onPressed: () =>
-                                    Navigator.of(context).pop(true),
-                                child: const Text('Delete'),
-                              ),
-                            ],
+                  Column(
+                    children: [
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        minimumSize: Size.zero,
+                        onPressed: () => onEditEntry(entry.id),
+                        child: const Icon(
+                          CupertinoIcons.pencil,
+                          color: CupertinoColors.activeBlue,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        minimumSize: Size.zero,
+                        onPressed: () async {
+                          final shouldDelete = await showCupertinoDialog<bool>(
+                            context: context,
+                            builder: (context) {
+                              return CupertinoAlertDialog(
+                                title: const Text('Delete Entry?'),
+                                content: Text(
+                                  '${formatDate(entry.startedAt)} at ${formatTime(entry.startedAt)} will be removed from history.',
+                                ),
+                                actions: [
+                                  CupertinoDialogAction(
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  CupertinoDialogAction(
+                                    isDestructiveAction: true,
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(true),
+                                    child: const Text('Delete'),
+                                  ),
+                                ],
+                              );
+                            },
                           );
+                          if (shouldDelete == true) {
+                            await onDeleteEntry(entry.id);
+                          }
                         },
-                      );
-                      if (shouldDelete == true) {
-                        await onDeleteEntry(entry.id);
-                      }
-                    },
-                    child: const Icon(
-                      CupertinoIcons.delete,
-                      color: CupertinoColors.destructiveRed,
-                    ),
+                        child: const Icon(
+                          CupertinoIcons.delete,
+                          color: CupertinoColors.destructiveRed,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1359,7 +1048,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         .map(
           (entry) => <String>[
             formatDateTime(entry.startedAt),
-            '${entry.severity}/5',
+            '${entry.severity}/$maxSeverityLevel',
             entry.durationMinutes == null
                 ? 'Not recorded'
                 : '${entry.durationMinutes} min',
@@ -1396,7 +1085,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           pw.Text(
             entries.isEmpty
                 ? 'Average severity: N/A'
-                : 'Average severity: ${averageSeverity(entries).toStringAsFixed(1)}/5',
+                : 'Average severity: ${averageSeverity(entries).toStringAsFixed(1)}/$maxSeverityLevel',
             style: const pw.TextStyle(fontSize: 12),
           ),
           pw.SizedBox(height: 4),
@@ -1578,7 +1267,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               value: '${filteredEntries.length}',
               subtitle: filteredEntries.isEmpty
                   ? 'No migraines in this date range.'
-                  : 'Average severity ${averageSeverity(filteredEntries).toStringAsFixed(1)}/5',
+                  : 'Average severity ${averageSeverity(filteredEntries).toStringAsFixed(1)}/$maxSeverityLevel',
             ),
             const SizedBox(height: 14),
             _GroupedCard(
@@ -1636,6 +1325,22 @@ class MigraineEntry {
   final List<String> triggers;
   final DateTime startedAt;
   final int? durationMinutes;
+
+  MigraineEntry copyWith({
+    String? id,
+    int? severity,
+    List<String>? triggers,
+    DateTime? startedAt,
+    int? durationMinutes,
+  }) {
+    return MigraineEntry(
+      id: id ?? this.id,
+      severity: severity ?? this.severity,
+      triggers: triggers ?? this.triggers,
+      startedAt: startedAt ?? this.startedAt,
+      durationMinutes: durationMinutes ?? this.durationMinutes,
+    );
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -1765,6 +1470,8 @@ class SeverityOption {
   final String emoji;
   final String label;
 }
+
+const maxSeverityLevel = 3;
 
 class _StatCard extends StatelessWidget {
   const _StatCard({
@@ -2214,7 +1921,7 @@ String buildReportSummary(List<MigraineEntry> entries, DateTimeRange range) {
   final lines = <String>[
     'Migraine report for ${formatDate(range.start)} to ${formatDate(range.end)}',
     'Total entries: ${entries.length}',
-    'Average severity: ${averageSeverity(entries).toStringAsFixed(1)}/5',
+    'Average severity: ${averageSeverity(entries).toStringAsFixed(1)}/$maxSeverityLevel',
     'Most common triggers: $topTriggers',
     '',
     'Log by day:',
@@ -2225,7 +1932,7 @@ String buildReportSummary(List<MigraineEntry> entries, DateTimeRange range) {
       final triggers = entry.triggers.isEmpty
           ? 'No triggers selected'
           : entry.triggers.join(', ');
-      return '- ${formatDateTime(entry.startedAt)}: Severity ${entry.severity}/5. $duration. Triggers: $triggers.';
+      return '- ${formatDateTime(entry.startedAt)}: Severity ${entry.severity}/$maxSeverityLevel. $duration. Triggers: $triggers.';
     }),
   ];
   return lines.join('\n');
