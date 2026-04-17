@@ -107,6 +107,45 @@ void main() {
     expect(await repository.loadCustomTriggers(), <String>['Dehydration']);
   });
 
+  test('malformed saved entries fall back to an empty list', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'migraine_entries': 'not valid json',
+    });
+    final repository = MigraineRepository(
+      await SharedPreferences.getInstance(),
+    );
+
+    expect(await repository.loadEntries(), isEmpty);
+  });
+
+  test('invalid saved entries are skipped while valid entries still load', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'migraine_entries':
+          '[{"id":"entry-1","severity":3,"triggers":["weather"],"startedAt":"2026-04-08T14:30:00.000","durationMinutes":45},{"id":"entry-2","severity":"bad","triggers":[],"startedAt":"2026-04-08T15:30:00.000"}]',
+    });
+    final repository = MigraineRepository(
+      await SharedPreferences.getInstance(),
+    );
+
+    final entries = await repository.loadEntries();
+
+    expect(entries, hasLength(1));
+    expect(entries.single.id, 'entry-1');
+  });
+
+  test('clampToNow prevents future timestamps', () {
+    final now = DateTime(2026, 4, 17, 10, 30);
+
+    expect(
+      clampToNow(DateTime(2026, 4, 17, 11), now: now),
+      now,
+    );
+    expect(
+      clampToNow(DateTime(2026, 4, 17, 9), now: now),
+      DateTime(2026, 4, 17, 9),
+    );
+  });
+
   testWidgets('home screen shows the migraine logger entry point', (
     WidgetTester tester,
   ) async {

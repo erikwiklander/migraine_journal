@@ -341,11 +341,12 @@ class _LogMigraineScreenState extends State<LogMigraineScreen> {
     });
     final durationText = _durationController.text.trim();
     final durationMinutes = int.tryParse(durationText);
+    final sanitizedStartedAt = clampToNow(_startedAt);
     final entry = MigraineEntry(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       severity: _severity,
       triggers: _selectedTriggers.toList()..sort(),
-      startedAt: _startedAt,
+      startedAt: sanitizedStartedAt,
       durationMinutes: durationMinutes,
     );
     await widget.onSave(entry);
@@ -463,7 +464,7 @@ class _LogMigraineScreenState extends State<LogMigraineScreen> {
     }
 
     setState(() {
-      _startedAt = pickedTime;
+      _startedAt = clampToNow(pickedTime);
     });
   }
 
@@ -1671,10 +1672,33 @@ class MigraineRepository {
     if (raw == null || raw.isEmpty) {
       return <MigraineEntry>[];
     }
-    final decoded = jsonDecode(raw) as List<dynamic>;
-    return decoded
-        .map((item) => MigraineEntry.fromJson(item as Map<String, dynamic>))
-        .toList();
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List<dynamic>) {
+        return <MigraineEntry>[];
+      }
+
+      final entries = <MigraineEntry>[];
+      for (final item in decoded) {
+        if (item is! Map) {
+          continue;
+        }
+        try {
+          entries.add(
+            MigraineEntry.fromJson(Map<String, dynamic>.from(item)),
+          );
+        } on FormatException {
+          continue;
+        } on TypeError {
+          continue;
+        }
+      }
+      return entries;
+    } on FormatException {
+      return <MigraineEntry>[];
+    } on TypeError {
+      return <MigraineEntry>[];
+    }
   }
 
   Future<void> saveEntries(List<MigraineEntry> entries) {
@@ -1898,6 +1922,11 @@ String formatTime(DateTime value) {
   final minute = value.minute.toString().padLeft(2, '0');
   final suffix = value.hour >= 12 ? 'PM' : 'AM';
   return '$hour:$minute $suffix';
+}
+
+DateTime clampToNow(DateTime value, {DateTime? now}) {
+  final referenceNow = now ?? DateTime.now();
+  return value.isAfter(referenceNow) ? referenceNow : value;
 }
 
 String severityEmoji(int severity) {
