@@ -157,7 +157,7 @@ void main() {
     await tester.pumpWidget(MyApp(repository: repository));
     await tester.pumpAndSettle();
 
-    expect(find.text('Aida'), findsOneWidget);
+    expect(find.text('Lindra'), findsOneWidget);
     expect(find.text('Log Migraine'), findsOneWidget);
     expect(find.text('History'), findsOneWidget);
     expect(find.text('Reports'), findsOneWidget);
@@ -215,7 +215,7 @@ void main() {
     await tester.tap(find.text('Save Entry'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Aida'), findsOneWidget);
+    expect(find.text('Lindra'), findsOneWidget);
     expect(find.text('I hope you feel better.'), findsOneWidget);
   });
 }

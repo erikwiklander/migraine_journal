@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "migraine_journal" "\0"
+            VALUE "FileDescription", "Lindra: Migraine Tracker" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "migraine_journal" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
             VALUE "OriginalFilename", "migraine_journal.exe" "\0"
-            VALUE "ProductName", "migraine_journal" "\0"
+            VALUE "ProductName", "Lindra: Migraine Tracker" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -1,6 +1,6 @@
 {
-    "name": "migraine_journal",
-    "short_name": "migraine_journal",
+    "name": "Lindra: Migraine Tracker",
+    "short_name": "Lindra",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

@@ -24,7 +24,7 @@ class MyApp extends StatelessWidget {
     const accentColor = Color(0xFF0A84FF);
 
     return CupertinoApp(
-      title: 'Aida Migraine Journal',
+      title: 'Lindra: Migraine Tracker',
       debugShowCheckedModeBanner: false,
       theme: const CupertinoThemeData(
         primaryColor: accentColor,
@@ -229,7 +229,7 @@ class HomeScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
           children: [
-            Text('Aida', style: theme.textTheme.navLargeTitleTextStyle),
+            Text('Lindra', style: theme.textTheme.navLargeTitleTextStyle),
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(24),
@@ -1374,7 +1374,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         margin: const pw.EdgeInsets.all(32),
         build: (context) => [
           pw.Text(
-            'Aida Migraine Journal',
+            'Lindra: Migraine Tracker',
             style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
           ),
           pw.SizedBox(height: 8),
