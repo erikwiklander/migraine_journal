@@ -1,4 +1,4 @@
-package com.example.migraine_journal
+package org.wiklander.lindra
 
 import io.flutter.embedding.android.FlutterActivity
 
